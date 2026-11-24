@@ -44,13 +44,13 @@ import {
   Clipboard, Code2, Copy, Download, Eye, EyeOff, FileCode2, ImagePlus, Layers2, Monitor, Moon,
   MoreHorizontal, Plus, Redo2, Search, Settings2, Smartphone, Sun, Trash2, Undo2, X,
 } from "lucide-react";
-import { formatNames, generateCode, type ExportFormat } from "./codegen";
+import { formatNames, generateCode, type ExportDeviceSize, type ExportFormat } from "./codegen";
 import { componentDefinitions, getDefinition, type CanvasElement, type CanvasPosition, type ComponentKind } from "./types";
 
 const STORAGE_KEY = "material-layout-studio-v1";
 const THEME_STORAGE_KEY = "material-layout-studio-theme";
 const exportFormats: ExportFormat[] = ["compose", "xml", "flet", "html"];
-type DeviceSize = "phone" | "tablet" | "desktop";
+type DeviceSize = ExportDeviceSize;
 const positionOptions: { value: CanvasPosition; label: string }[] = [
   { value: "flow", label: "Flow" },
   { value: "top-left", label: "Top left" },
@@ -114,7 +114,10 @@ function App() {
   }, [darkTheme]);
 
   const selected = elements.find((element) => element.id === selectedId) ?? null;
-  const generatedCode = useMemo(() => generateCode(elements, format), [elements, format]);
+  const generatedCode = useMemo(
+    () => generateCode(elements, format, { device, darkTheme }),
+    [elements, format, device, darkTheme],
+  );
   const filteredDefinitions = componentDefinitions.filter((definition) =>
     `${definition.name} ${definition.category} ${definition.description}`.toLowerCase().includes(query.toLowerCase()),
   );

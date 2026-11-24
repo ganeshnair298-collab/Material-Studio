@@ -42,6 +42,12 @@ const htmlPosition: Partial<Record<CanvasPosition, string>> = {
 };
 
 export type ExportFormat = "compose" | "xml" | "flet" | "html";
+export type ExportDeviceSize = "phone" | "tablet" | "desktop";
+
+export interface ExportOptions {
+  device?: ExportDeviceSize;
+  darkTheme?: boolean;
+}
 
 export const formatNames: Record<ExportFormat, string> = {
   compose: "Compose",
@@ -58,10 +64,10 @@ function normalizeComponentType(type: CanvasElement["type"]): CanvasElement["typ
   return type;
 }
 
-export function generateCode(elements: CanvasElement[], format: ExportFormat): string {
+export function generateCode(elements: CanvasElement[], format: ExportFormat, options: ExportOptions = {}): string {
   if (format === "compose") return generateCompose(elements);
   if (format === "xml") return generateXml(elements);
-  if (format === "flet") return generateFlet(elements);
+  if (format === "flet") return generateFlet(elements, options);
   return generateHtml(elements);
 }
 
@@ -273,16 +279,49 @@ ${rows || "    <!-- Add components from the palette to populate this layout. -->
 ${layout}`;
 }
 
-function generateFlet(elements: CanvasElement[]): string {
+function generateFlet(elements: CanvasElement[], options: ExportOptions): string {
+  const device = options.device ?? "phone";
+  const darkTheme = options.darkTheme ?? false;
+  const canvasWidth = { phone: 314, tablet: 574, desktop: 734 }[device];
+  const canvasHeight = 616;
+  const onSurfaceColor = darkTheme ? "#e6e1e9" : "#1d1b20";
+  const surfaceContainerColor = darkTheme ? "#302d37" : "#f3edf7";
+  const secondaryContainerColor = darkTheme ? "#4a4458" : "#e8def8";
+  const colorNames = new Map<string, string>();
+  const colors = [
+    "#65558f",
+    "#ffffff",
+    "#f7f2fa",
+    "#79747e",
+    "#313033",
+    "#292631",
+    "#24212b",
+    "#302d37",
+    "#f5f3fa",
+    "#eae8ed",
+    onSurfaceColor,
+    surfaceContainerColor,
+    secondaryContainerColor,
+    ...elements.map((item) => item.color),
+  ];
+  for (const value of colors) {
+    const normalized = value.toUpperCase();
+    if (!colorNames.has(normalized)) colorNames.set(normalized, `color${colorNames.size + 1}`);
+  }
+  const colorRef = (value: string): string => `COLORS[${pythonString(colorNames.get(value.toUpperCase())!)}]`;
+  const colorsCode = Array.from(colorNames, ([color, name]) =>
+    `    ${pythonString(name)}: ${pythonString(color)},`,
+  ).join("\n");
   const renderControl = (item: CanvasElement): string => {
     const text = pythonString(item.label);
-    const color = pythonString(item.color);
+    const color = colorRef(item.color);
+    const textColor = item.color.toUpperCase() === "#292532" ? colorRef(onSurfaceColor) : color;
     switch (normalizeComponentType(item.type)) {
-      case "text": return `ft.Text(${text}, size=${item.fontSize}, color=${color})`;
+      case "text": return `ft.Text(${text}, size=${item.fontSize}, color=${textColor})`;
       case "image": return item.imageSrc
         ? `ft.Image(src_base64=${pythonString(item.imageSrc.split(",").pop() ?? "")}, fit=ft.BoxFit.COVER)`
-        : `ft.Container(content=ft.Column([ft.Icon(ft.Icons.IMAGE), ft.Text(${text}, size=${item.fontSize})], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8), bgcolor=${color}, border_radius=${item.radius}, alignment=ft.Alignment(0, 0))`;
-      case "button": return `ft.FilledButton(content=ft.Text(${text}, size=${item.fontSize}), style=ft.ButtonStyle(bgcolor=${color}, color="#ffffff", shape=ft.RoundedRectangleBorder(radius=${item.radius})))`;
+        : `ft.Container(content=ft.Column([ft.Icon(ft.Icons.IMAGE, color=${colorRef(onSurfaceColor)}), ft.Text(${text}, size=${item.fontSize}, color=${colorRef(onSurfaceColor)})], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8), bgcolor=${colorRef(secondaryContainerColor)}, border_radius=${item.radius}, alignment=ft.Alignment(0, 0))`;
+      case "button": return `ft.FilledButton(content=ft.Text(${text}, size=${item.fontSize}), style=ft.ButtonStyle(bgcolor=${color}, color=${colorRef("#ffffff")}, shape=ft.RoundedRectangleBorder(radius=${item.radius})))`;
       case "elevatedButton": return `ft.ElevatedButton(content=ft.Text(${text}), style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=${item.radius})))`;
       case "tonalButton": return `ft.FilledTonalButton(content=ft.Text(${text}), style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=${item.radius})))`;
       case "outlinedButton": return `ft.OutlinedButton(content=ft.Text(${text}, size=${item.fontSize}), style=ft.ButtonStyle(color=${color}, shape=ft.RoundedRectangleBorder(radius=${item.radius})))`;
@@ -314,19 +353,19 @@ function generateFlet(elements: CanvasElement[]): string {
       case "navigationRail": return `ft.NavigationRail(selected_index=0, destinations=[ft.NavigationRailDestination(icon=ft.Icons.HOME, label="Home"), ft.NavigationRailDestination(icon=ft.Icons.BOOKMARK, label="Saved"), ft.NavigationRailDestination(icon=ft.Icons.PERSON, label="Profile")])`;
       case "tabs": return `ft.Row([ft.TextButton(content=ft.Text("Overview", weight=ft.FontWeight.BOLD)), ft.TextButton(content=ft.Text("Details")), ft.TextButton(content=ft.Text("Activity"))], alignment=ft.MainAxisAlignment.SPACE_AROUND)`;
       case "toolbar": return `ft.Row([ft.IconButton(icon=ft.Icons.UNDO, tooltip="Undo"), ft.IconButton(icon=ft.Icons.REDO, tooltip="Redo"), ft.Container(expand=True), ft.IconButton(icon=ft.Icons.MORE_VERT, tooltip="More options")], vertical_alignment=ft.CrossAxisAlignment.CENTER)`;
-      case "bottomSheet": return `ft.Container(content=ft.Column([ft.Container(width=32, height=4, bgcolor="#79747e", border_radius=2), ft.Text(${text}, weight=ft.FontWeight.BOLD), ft.ListTile(title=ft.Text("Share with a contact")), ft.ListTile(title=ft.Text("Copy link"))], spacing=8), padding=16, bgcolor="#f7f2fa", border_radius=${item.radius})`;
-      case "card": return `ft.Card(content=ft.Container(content=ft.Column([ft.Text(${text}, size=${item.fontSize}, weight=ft.FontWeight.BOLD), ft.Text("Supporting text and actions"), ft.TextButton(content=ft.Text("Open"))], spacing=8), padding=16, bgcolor=${color}, border_radius=${item.radius}))`;
+      case "bottomSheet": return `ft.Container(content=ft.Column([ft.Container(width=32, height=4, bgcolor=${colorRef("#79747e")}, border_radius=2), ft.Text(${text}, weight=ft.FontWeight.BOLD), ft.ListTile(title=ft.Text("Share with a contact")), ft.ListTile(title=ft.Text("Copy link"))], spacing=8), padding=16, bgcolor=${colorRef("#f7f2fa")}, border_radius=${item.radius})`;
+      case "card": return `ft.Card(content=ft.Container(content=ft.Column([ft.Text(${text}, size=${item.fontSize}, weight=ft.FontWeight.BOLD), ft.Text("Supporting text and actions"), ft.TextButton(content=ft.Text("Open"))], spacing=8), padding=16, bgcolor=${colorRef(surfaceContainerColor)}, border_radius=${item.radius}))`;
       case "carousel": return `ft.Row([ft.Card(content=ft.Container(content=ft.Column([ft.Container(height=80, bgcolor=${color}), ft.Text("For you")]), padding=8)), ft.Card(content=ft.Container(content=ft.Column([ft.Container(height=80, bgcolor=${color}), ft.Text("Trending")]), padding=8))], spacing=8, scroll=ft.ScrollMode.AUTO)`;
-      case "dialog": return `ft.Card(content=ft.Container(content=ft.Column([ft.Text(${text}, size=20, weight=ft.FontWeight.BOLD), ft.Text("Your changes will not be saved."), ft.Row([ft.TextButton(content=ft.Text("Cancel")), ft.TextButton(content=ft.Text("Discard"))], alignment=ft.MainAxisAlignment.END)], spacing=12), padding=20, bgcolor="#f7f2fa", border_radius=${item.radius}))`;
+      case "dialog": return `ft.Card(content=ft.Container(content=ft.Column([ft.Text(${text}, size=20, weight=ft.FontWeight.BOLD), ft.Text("Your changes will not be saved."), ft.Row([ft.TextButton(content=ft.Text("Cancel")), ft.TextButton(content=ft.Text("Discard"))], alignment=ft.MainAxisAlignment.END)], spacing=12), padding=20, bgcolor=${colorRef("#f7f2fa")}, border_radius=${item.radius}))`;
       case "divider": return `ft.Divider(height=${Math.max(item.height, 1)}, color=${color}, thickness=${Math.max(item.height, 1)})`;
       case "list": return `ft.Column([ft.ListTile(title=ft.Text("Design review"), subtitle=ft.Text("Today, 10:30 AM"), leading=ft.Icon(ft.Icons.EVENT)), ft.ListTile(title=ft.Text("Team meeting"), subtitle=ft.Text("Tomorrow, 2:00 PM"), leading=ft.Icon(ft.Icons.GROUPS)), ft.ListTile(title=ft.Text("Project update"), subtitle=ft.Text("Friday, 9:00 AM"), leading=ft.Icon(ft.Icons.TASK_ALT))], spacing=0)`;
-      case "sideSheet": return `ft.Container(content=ft.Column([ft.Text(${text}, weight=ft.FontWeight.BOLD), ft.ListTile(title=ft.Text("Appearance"), subtitle=ft.Text("Theme and colors")), ft.ListTile(title=ft.Text("Notifications"), subtitle=ft.Text("Manage alerts"))], spacing=8), padding=16, bgcolor="#f7f2fa", border_radius=${item.radius})`;
-      case "badge": return `ft.Stack(controls=[ft.Icon(ft.Icons.NOTIFICATIONS), ft.Container(content=ft.Text(${pythonString(item.label || "3")}, size=10, color="#ffffff"), left=24, top=0, padding=4, bgcolor=${color}, border_radius=12)], width=56, height=48)`;
+      case "sideSheet": return `ft.Container(content=ft.Column([ft.Text(${text}, weight=ft.FontWeight.BOLD), ft.ListTile(title=ft.Text("Appearance"), subtitle=ft.Text("Theme and colors")), ft.ListTile(title=ft.Text("Notifications"), subtitle=ft.Text("Manage alerts"))], spacing=8), padding=16, bgcolor=${colorRef("#f7f2fa")}, border_radius=${item.radius})`;
+      case "badge": return `ft.Stack(controls=[ft.Icon(ft.Icons.NOTIFICATIONS), ft.Container(content=ft.Text(${pythonString(item.label || "3")}, size=10, color=${colorRef("#ffffff")}), left=24, top=0, padding=4, bgcolor=${color}, border_radius=12)], width=56, height=48)`;
       case "loadingIndicator": return `ft.Column([ft.ProgressRing(), ft.Text(${text})], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=8)`;
       case "circularProgressIndicator": return `ft.ProgressRing(value=0.65, color=${color})`;
       case "wavyProgressIndicator": return `ft.ProgressBar(value=0.65, color=${color})`;
-      case "snackbar": return `ft.Container(content=ft.Row([ft.Text(${text}, expand=True), ft.TextButton(content=ft.Text("Undo"))]), padding=12, bgcolor="#313033", border_radius=${item.radius})`;
-      case "tooltip": return `ft.Row([ft.Icon(ft.Icons.INFO_OUTLINE, color=${color}), ft.Container(content=ft.Text(${text}), padding=8, bgcolor="#313033", border_radius=${item.radius})], spacing=8)`;
+      case "snackbar": return `ft.Container(content=ft.Row([ft.Text(${text}, expand=True), ft.TextButton(content=ft.Text("Undo"))]), padding=12, bgcolor=${colorRef("#313033")}, border_radius=${item.radius})`;
+      case "tooltip": return `ft.Row([ft.Icon(ft.Icons.INFO_OUTLINE, color=${color}), ft.Container(content=ft.Text(${text}), padding=8, bgcolor=${colorRef("#313033")}, border_radius=${item.radius})], spacing=8)`;
       default: throw new Error(`Unsupported Flet component type: ${item.type}`);
     }
   };
@@ -334,8 +373,6 @@ function generateFlet(elements: CanvasElement[]): string {
   const bodyElements = elements.filter((item) => item.id !== appBar?.id);
   const flowElements = bodyElements.filter((item) => item.position === "flow");
   const positionedElements = bodyElements.filter((item) => item.position !== "flow");
-  const canvasWidth = 316;
-  const canvasHeight = 616;
   const flowControls = flowElements.map((item) => `                ft.Container(content=${renderControl(item)}, width=${item.fillWidth ? canvasWidth : item.width}, height=${item.fillHeight ? canvasHeight : item.height}, alignment=ft.Alignment(0, 0))`).join(",\n");
   const positionedControls = positionedElements.map((item) => {
     const width = item.fillWidth ? canvasWidth : item.width;
@@ -365,22 +402,31 @@ ${flowControls || "                # Add components from the palette to populate
         leading=ft.IconButton(icon=ft.Icons.ARROW_BACK, tooltip="Navigate back"),
         actions=[ft.IconButton(icon=ft.Icons.MORE_VERT, tooltip="More options")],
         toolbar_height=${appBar.height},
-        color=${pythonString(appBar.color)},
-        color=${pythonString(appBar.color)},
+        bgcolor=${colorRef(darkTheme ? "#302d37" : "#f7f2fa")},
     )
 `
     : "";
+  const surfaceColor = darkTheme ? "#24212b" : "#ffffff";
+  const pageColor = darkTheme ? "#292631" : "#f5f3fa";
   return `import flet as ft
+
+COLORS = {
+${colorsCode}
+}
 
 def main(page: ft.Page):
     page.title = "Material 3 layout"
     page.padding = 0
-    page.theme = ft.Theme(color_scheme_seed="#65558f", use_material3=True)
+    page.theme = ft.Theme(color_scheme_seed=${colorRef("#65558f")}, use_material3=True)
+    page.theme_mode = ft.ThemeMode.${darkTheme ? "DARK" : "LIGHT"}
+    page.bgcolor = ${colorRef(pageColor)}
 ${appBarCode}    page.add(
         ft.Container(
             content=${controls},
             width=${canvasWidth + 44},
             padding=22,
+            bgcolor=${colorRef(surfaceColor)},
+            border_radius=8,
         )
     )
 
