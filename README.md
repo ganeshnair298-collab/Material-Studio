@@ -1,8 +1,8 @@
-# Material Layout Studio
+# Material Studio
 
-Material Layout Studio is a desktop visual editor for arranging Material 3 components and exporting the same layout as Jetpack Compose, Android XML, Flet, or standalone HTML. Canvas previews use Google's Material Web components where available, with those primitives composed for pickers and other patterns the library does not provide.
+Material Studio is a desktop visual editor for arranging Material 3 components and exporting the same layout as Jetpack Compose, Android XML, Flet, or standalone HTML. Canvas previews use Google's Material Web components where available, with those primitives composed for pickers and other patterns the library does not provide.
 
-![Material Layout Studio screenshot](./images/image.png)
+![Material Studio screenshot](./images/image.png)
 
 ## Run locally
 
